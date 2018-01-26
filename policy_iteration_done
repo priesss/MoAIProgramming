@@ -49,11 +49,12 @@ def old_value(field,new_state,old,state):
     
     M,N = field.shape
     
+    # Not performing an action if we try to leave the grid world or move against an obstacle
+    # => no state transition
     if i < 0 or i >= M or j < 0 or j >= N or field[i][j] == 'O':
         return old[old_i,old_j]
    
     return old[i,j]
-
 
 def v(state, old, mdp, discount_factor, zip_policy):
     """
@@ -64,45 +65,29 @@ def v(state, old, mdp, discount_factor, zip_policy):
     discount_factor as float
     policy as 2d array
     """
-    x_policy, y_policy = zip_policy
-    
     field = mdp.get_state()
-    i,j = state
-
-    # retrieve action from policy
-
+    
+    # retrieve action (movement in x and y direction) from policy
+    x_policy, y_policy = zip_policy
     x,y = x_policy[state],y_policy[state]
     
     # calculate new state
     # add x,y for intended new state
     # add y,x for moving to the right of intended
     # add -y,-x for moving to the left of intended
-    state_1 = (i + x, j + y)
-    state_2 = (i + y, j + x)
-    state_3 = (i - y, j - x)
+    state_1 = (state[0] + x, state[1] + y)
+    state_2 = (state[0] + y, state[1] + x)
+    state_3 = (state[0] - y, state[1] - x)
     
     # probability of moving in an unintended direction
     prob = mdp.get_prob()
     un_prob = (1 - mdp.get_prob())/2
     
-    # formula from slides with old_value function
+    # formula from slides with old value function
     
-    
-    value_1 = prob * old_value(field,state_1,old,state)
-    value_2 = un_prob * old_value(field,state_2,old,state)
-    value_3 = un_prob * old_value(field,state_3,old,state)
-    
-    """
-    if i == 1 and j == 2:
-        print(prob,old_value(field,state_1,old,state))
-        print(value_1,value_2,value_3, 'next')
-        print((value_1 + value_2 + value_3),'sum')
-        value = (mdp.get_reward() + discount_factor * (value_1 + value_2 + value_3))
-        print(value,'val')
-    """
-    value = (mdp.get_reward() + discount_factor * (value_1 + value_2 + value_3))
-        
-    return value
+    return (mdp.get_reward() + discount_factor * (prob * old_value(field,state_1,old,state)
+                                                + un_prob * old_value(field,state_2,old,state) 
+                                                + un_prob * old_value(field,state_3,old,state)))
 
 def evaluation(mdp,zip_policy,discount_factor):
     """
@@ -140,11 +125,13 @@ def evaluation(mdp,zip_policy,discount_factor):
         for i in range(M):
             for j in range(N):
                 
-                # if obstible, value = 0
+                # if there is an 'O' in the grid world we do not want to take this field into account
+                # therefore we will assign -99 to the field (None's are bad for comparison)
+                # we also ignore 'O' fields when doing the greedy policy update
+                # => no need to worry about this artificial negative 99
                 if field[i,j] == 'O':
-                    v_matrix[i,j] = None
-                    old[i,j] = None
-                    obstacles.append((i,j))
+                    v_matrix[i,j] = -99
+                    old[i,j] = -99
                     
                 # if state is exit, value = 1
                 if field[i,j] == 'E':
@@ -159,21 +146,16 @@ def evaluation(mdp,zip_policy,discount_factor):
                 # if state is normal field, calculate new value
                 if field[i,j] == 'F':
                     v_matrix[i,j] = v((i,j),old,mdp,discount_factor,zip_policy)
-                
-        # difference matrix
-        for cords in obstacles:
-            old[cords] = -999999
-            v_matrix[cords] = -999999
-            
+                        
+        # difference matrix    
         diff = old - v_matrix
         
-        # highest difference for comparison with threshold
+        # highest difference of old and new value function for comparison with threshold
         max_diff = np.amax(np.absolute(diff))
         
         # calculated value matrix is now old matrix
         old = np.copy(v_matrix)
     
-    # return value function
     return v_matrix
  
 ########################
@@ -195,6 +177,7 @@ def _iterate(v, mdp, policy, discount_factor):
     x_policy, y_policy = policy
     M, N = mdp.get_state().shape
     
+    # obstacle padding
     biggerState =[]
     
     for i in range(M+2):
@@ -202,8 +185,7 @@ def _iterate(v, mdp, policy, discount_factor):
         for j in range(N+2):
             sublist.append('O')
         biggerState.append(sublist)
-    
-    
+     
     biggerState = np.asarray(biggerState)
     
     biggerState[1:M+1,1:N+1] = mdp.get_state()
@@ -213,6 +195,9 @@ def _iterate(v, mdp, policy, discount_factor):
     v = bigger
     
     for i,j in np.argwhere(biggerState != 'O'):
+            
+            # finding max in 4 nbh
+            # lets improve this part pls
             
             elem_list = []
             elem_list.append(v[i-1,j])
@@ -237,7 +222,6 @@ def _iterate(v, mdp, policy, discount_factor):
     
     return v[1:M+1,1:N+1],policy
 
-
 def _policyIteration(MDP, discount_factor, zip_policy, iterations = None):
     """
     Find optimal policy by iterating over the policy until stopping-condition 
@@ -252,11 +236,9 @@ def _policyIteration(MDP, discount_factor, zip_policy, iterations = None):
         Optimal policy as 2D-array
     """
     
-    
-    #Initialize value function and set starting policy
+    #Initialize value function
     M, N = MDP.get_state().shape
     v_function = np.zeros((M,N))
-    
     
     if callable(iterations):
         #iterate over policy n-times
@@ -294,7 +276,6 @@ M,N = field.shape
 y_policy = np.ones((M,N))
 x_policy = np.zeros((M,N))
 
-
 mdp = MDP(field,0.8,-0.04,)
 
 # hoch =  -1 0 
@@ -302,10 +283,10 @@ mdp = MDP(field,0.8,-0.04,)
 # links = 0 -1
 # down = 1 0
 
-
 perfect_policy = _policyIteration(mdp, 0.7, zip_policy)
+
+# steffis kosmetische update funktion für die policy
 
 print(perfect_policy[0])
 print()
 print(perfect_policy[1])
-
